@@ -1,23 +1,25 @@
-//! By convention, root.zig is the root source file when making a library.
+//! ZIM - Zig Infrastructure Manager
+//! Root module that exposes the public API
+
 const std = @import("std");
 
-pub fn bufferedPrint() !void {
-    // Stdout is for the actual output of your application, for example if you
-    // are implementing gzip, then only the compressed bytes should be sent to
-    // stdout, not any debugging messages.
-    var stdout_buffer: [1024]u8 = undefined;
-    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
-    const stdout = &stdout_writer.interface;
+// Export public modules
+pub const cli = @import("cli/cli.zig");
+pub const config = @import("config/config.zig");
+pub const toolchain = @import("toolchain/toolchain.zig");
+pub const deps = @import("deps/deps.zig");
+pub const target = @import("target/target.zig");
 
-    try stdout.print("Run `zig build test` to run the tests.\n", .{});
+// Export utility modules
+pub const util = struct {
+    pub const version = @import("util/version.zig");
+    pub const download = @import("util/download.zig");
+};
 
-    try stdout.flush(); // Don't forget to flush!
-}
+// Version info
+pub const version = "0.1.0-dev";
+pub const zig_version_string = @import("builtin").zig_version_string;
 
-pub fn add(a: i32, b: i32) i32 {
-    return a + b;
-}
-
-test "basic add functionality" {
-    try std.testing.expect(add(3, 7) == 10);
+test {
+    std.testing.refAllDecls(@This());
 }

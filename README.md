@@ -1,182 +1,356 @@
 <div align="center">
   <img src="assets/icons/zim.png" alt="ZIM Logo" width="200"/>
+
+  # 🌀 ZIM — Zig Infrastructure Manager
+
+  **The all-in-one toolchain and package manager for Zig**
+
+  [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+  [![Zig](https://img.shields.io/badge/Zig-0.16.0+-orange.svg)](https://ziglang.org)
+  [![Status](https://img.shields.io/badge/Status-Alpha-yellow.svg)](https://github.com/ghostkellz/zim)
 </div>
 
-# ZIM — Zig Infrastructure Manager
+---
 
-ZIM is the **next-generation toolchain manager for the Zig ecosystem**, inspired by Rust’s `rustup` and Go’s `gvm`, but built natively in Zig. It seamlessly integrates with **Babylon** (package manager), **ZMake** (build orchestrator), **Veridion** (security/provenance), and **Apollo** (observability) to create a fully reproducible, policy-aware development environment.
+**ZIM** is the next-generation **toolchain and package manager for Zig**, unifying what `rustup` and `cargo` do for Rust into one cohesive tool — written entirely in Zig.
+
+It's fast, portable, and designed to be the **core infrastructure for the modern Zig ecosystem**, powering reproducible builds, dependency resolution, cross-compilation, and secure toolchain management — all in one binary.
 
 ---
 
 ## 🚀 Mission
 
-> To make Zig toolchains **reproducible, portable, and secure by default** — one command away.
+> To make **Zig development frictionless, reproducible, and secure** — from local development to production deployment.
 
-ZIM provides a unified interface for managing Zig versions, build targets, registries, and caches, while ensuring deterministic builds and strong provenance enforcement.
+ZIM eliminates fragmented workflows by merging **toolchain and dependency management** into one cohesive system that's secure, fast, and ready for cross-compilation to any target.
 
 ---
 
 ## ✨ Core Features
 
-### 🔧 Toolchain Management
+### 🔧 Toolchain Management (like `rustup`)
+- **Install multiple Zig versions** side-by-side with cryptographic verification
+- **Global and per-project pinning** — set active version globally or via `.zim/toolchain.toml`
+- **Automatic toolchain detection** — respects project-specific Zig versions
+- **Verified downloads** — SHA-256 hash verification using zcrypto
 
-* Install, switch, and pin Zig versions per-project or globally.
-* Auto-detect `.zim/toolchain.toml` and activate environments automatically.
-* Verify signatures for official and custom Zig releases.
+### 📦 Dependency Management (like `cargo`)
+- **Multiple dependency sources:** Git repositories, tarballs, local paths, and registries (future)
+- **Semantic versioning** with npm-style constraints (`^1.2.3`, `~1.0.0`, `>=2.0.0`)
+- **Content-addressed caching** — Babylon-inspired deduplication and efficiency
+- **Dependency resolution** — automatic conflict detection and version compatibility
+- **Reproducible builds** — deterministic lockfiles (`zim.lock`) with full provenance
+- **Native Zig format support** — read and write `build.zig.zon` dependencies
 
-### 🎯 Target Management
+### 🌐 Cross-Compilation Support
+- **Target management** — add and manage cross-compilation targets
+- **Common targets:** `x86_64-linux`, `aarch64-linux`, `wasm32-wasi`, `x86_64-windows`, `aarch64-macos`
+- **Stdlib bundled** — Zig's stdlib works out-of-the-box for all targets
+- **Custom sysroots** — optional custom headers and libraries per target
 
-* Install sysroots and stdlib targets for cross-compilation.
-* Define reusable build profiles (e.g., `cross-linux`, `embedded`, `web`).
-* Mirror toolchains and targets locally for offline builds.
+### 🔐 Security & Integrity
+- **Hash verification** — all downloads verified with SHA-256 checksums
+- **Integrity checks** — `zim verify` ensures dependency integrity
+- **Secure by default** — uses system CA certificates for HTTPS
+- **Future:** Package signing and attestation support
 
-### 🧱 Babylon Integration
-
-* Use the correct Babylon registry and dependency graph for the active toolchain.
-* Automatically lock Babylon versions to the current Zig release.
-* Verify package integrity and signatures via Veridion.
-
-### 🧮 Apollo Metrics & Cache
-
-* Shared content-addressable cache for all Zig builds.
-* Expose Prometheus metrics (cache hits, build time, downloads).
-* Cache pruning, deduplication, and profile-aware LRU cleanup.
-
-### 🔐 Veridion Provenance Enforcement
-
-* Require signed toolchains, packages, and registry manifests.
-* Validate checksums and issue attestation logs for CI/CD.
-* Optional SBOM export and cosign support.
-
-### 🧰 ZMake Integration
-
-* Plug directly into ZMake for system-level packaging.
-* Auto-hydrate toolchains in reproducible chroot environments.
-* Unified TOML configuration and policy layers.
+### 🚀 Developer Experience
+- **Beautiful CLI** — clear, colorful output with progress indicators
+- **Dependency visualization** — ASCII tree graphs with cycle detection
+- **Smart caching** — content-addressable storage prevents duplication
+- **Detailed diagnostics** — `zim doctor` checks system health
+- **Comprehensive docs** — full CLI and API documentation
 
 ---
 
-## 🧩 Directory Layout
+## 📁 Directory Structure
 
 ```
-zim/
-├─ toolchains/        # Installed Zig releases and metadata
-├─ targets/           # Cross-compile sysroots and stdlibs
-├─ cache/             # CAS for build outputs and dependencies
-├─ babylon-bridge/    # Registry + lockfile integration
-├─ policy/            # Veridion signatures, SBOM, provenance
-└─ telemetry/         # Apollo metrics exporter
+~/.zim/
+├── toolchains/           # Installed Zig versions
+│   ├── 0.16.0/          # Zig 0.16.0 installation
+│   ├── 0.13.0/          # Zig 0.13.0 installation
+│   └── active           # Symlink to active version
+├── targets/             # Cross-compilation targets
+│   ├── wasm32-wasi/     # WASM target sysroot (optional)
+│   └── aarch64-linux/   # ARM64 Linux sysroot (optional)
+└── config/              # Global configuration
+    └── config.toml      # ZIM configuration
+
+~/.cache/zim/
+└── deps/                # Content-addressed dependency cache
+    ├── ab/cd/abcdef...  # Cached dependency (hash-based)
+    └── 12/34/123456...  # Another cached dependency
 ```
+
+
+---
+
+## 🚀 Installation
+
+### Quick Install
+
+```bash
+# Clone and build from source
+git clone https://github.com/ghostkellz/zim.git
+cd zim
+zig build
+./zig-out/bin/zim --version
+```
+
+### Integration with Existing Projects
+
+Add ZIM to your project's dependencies using Zig's native package manager:
+
+```bash
+# Using zig fetch
+zig fetch --save https://github.com/ghostkellz/zim/archive/main.tar.gz
+
+# Or clone directly
+git clone https://github.com/ghostkellz/zim.git
+```
+
+Then in your `build.zig.zon`:
+
+```zig
+.dependencies = .{
+    .zim = .{
+        .url = "https://github.com/ghostkellz/zim/archive/main.tar.gz",
+        .hash = "1220...", // Hash from zig fetch
+    },
+},
+```
+
+### System Package Installation
+
+See [Installation Guide](#installation-guide) for OS-specific packages (Arch, Debian, Ubuntu, Fedora).
 
 ---
 
 ## ⚡ Quick Start
 
 ```bash
-# Install latest stable Zig
-tim install latest
+# Install Zig 0.16.0
+zim install 0.16.0
 
-# Pin specific version in current project
-tim toolchain pin 0.16.0
+# Set as global active version
+zim use 0.16.0
 
-# Add cross targets
-zim target add x86_64-linux-gnu aarch64-linux-gnu
+# Initialize a new project
+zim deps init my-awesome-project
+cd my-awesome-project
 
-# Sync Babylon dependencies
-zim deps install
+# Add dependencies
+zim deps add zsync --git https://github.com/ghostkellz/zsync --ref main
+zim deps add zhttp --git https://github.com/ghostkellz/zhttp --ref main
 
-# Verify toolchain + provenance
-zim verify --policy strict
+# Fetch all dependencies
+zim deps fetch
 
-# Cache stats & telemetry
-zim cache status
+# View dependency tree
+zim deps graph
+
+# Add cross-compilation target
+zim target add wasm32-wasi
+
+# Verify project integrity
+zim verify
+
+# Build your project
+zig build
 ```
 
 ---
 
-## 🧱 Example: `.zim/toolchain.toml`
+## 📝 Configuration Examples
+
+### Project Configuration: `.zim/toolchain.toml`
+
+Pin your project to a specific Zig version:
 
 ```toml
+# ZIM toolchain configuration
 zig = "0.16.0"
-targets = ["x86_64-linux-gnu", "aarch64-linux-gnu"]
 
-[babylon]
-registry = "https://registry.babylon.dev"
-lockfile = "Babylon.lock"
+# Cross-compilation targets
+targets = ["x86_64-linux-gnu", "wasm32-wasi"]
+```
 
+### Dependency Manifest: `zim.toml`
+
+Define your project dependencies:
+
+```toml
+[project]
+name = "my-awesome-project"
+version = "1.0.0"
+zig = "0.16.0"
+
+[dependencies]
+zsync = { git = "https://github.com/ghostkellz/zsync", ref = "main" }
+zhttp = { git = "https://github.com/ghostkellz/zhttp", ref = "main" }
+zpack = { tarball = "https://example.com/zpack.tar.gz", hash = "sha256:abc123..." }
+
+[dev-dependencies]
+test-framework = { git = "https://github.com/user/test", ref = "v1.0.0" }
+
+[targets]
+default = ["native", "wasm32-wasi"]
+```
+
+### Global Configuration: `~/.config/zim/config.toml`
+
+Configure ZIM globally:
+
+```toml
 [cache]
-path = "~/.cache/zim"
-max_size = "10GB"
+dir = "/custom/cache/dir"
+max_size = 10737418240  # 10GB
+
+[registry]
+url = "https://zim.example.com/registry"
+mirror = "https://mirror.example.com"
 
 [policy]
 require_signatures = true
-min_sig_level = "sigstore"
+allowed_sources = ["github.com", "gitlab.com"]
+
+[network]
+ca_bundle = "/etc/ssl/certs/ca-bundle.crt"
 ```
 
 ---
 
-## 🔭 Roadmap
+## 📚 Documentation
 
-### Milestone 0.1 — Core Toolchains
-
-* [x] Install/use/pin Zig versions
-* [x] Detect `.zim/toolchain.toml`
-* [ ] Add cross targets and cache layer
-
-### Milestone 0.2 — Babylon & CI
-
-* [ ] Integrate Babylon registry + lockfiles
-* [ ] Add CI bootstrap commands
-* [ ] Apollo metrics exporter
-
-### Milestone 0.3 — Veridion + Policy
-
-* [ ] Signature validation (toolchains, registries)
-* [ ] SBOM and attestation exports
-* [ ] Mirror + offline build support
-
-### Milestone 0.4 — Profiles & Workspaces
-
-* [ ] Multi-profile, multi-target builds
-* [ ] Workspace awareness (monorepos)
-* [ ] Policy-aware chroot provisioning for ZMake
-
----
-
-## 🧠 Philosophy
-
-* **Reproducibility First:** Every build is tied to a specific Zig version and registry state.
-* **Transparency:** Signatures, hashes, and provenance are auditable and visible.
-* **Composability:** Integrates with Babylon, ZMake, Veridion, and Apollo natively.
-* **Performance:** Written in Zig, statically linked, and portable.
+- **[CLI Reference](docs/CLI.md)** — Complete command-line documentation
+- **[API Documentation](docs/API.md)** — Full API reference for all modules
+- **[Configuration Guide](docs/CONFIGURATION.md)** — Detailed configuration options
+- **[Examples](examples/)** — Example projects and use cases
 
 ---
 
 ## 🛠️ Tech Stack
 
-* **Language:** Zig 0.16.0+
-* **Format:** TOML via ZonTOM parser
-* **Security:** Sigstore / Veridion integration
-* **Telemetry:** Apollo (Prometheus endpoint)
+- **Language:** Zig 0.16.0+
+- **Parser:** zontom (TOML parsing)
+- **HTTP:** zhttp (downloads)
+- **Crypto:** zcrypto (hash verification)
+- **Compression:** zpack (archive extraction)
+- **Git:** Native git integration for dependencies
+
+### Ghost Stack Integration
+
+ZIM leverages the entire **Ghost Stack** ecosystem of 15 high-quality Zig libraries:
+
+- **zhttp** — HTTP client for downloads
+- **zcrypto** — Cryptographic verification
+- **zontom** — TOML parsing
+- **zpack** — Archive handling
+- **zsync** — Synchronization primitives
+- **flash** — Fast algorithms
+- **flare** — Event systems
+- And more...
 
 ---
 
-## 🧩 Example CLI Reference
+## 🧭 Roadmap
 
-```
-zim toolchain install 0.16.0
-zim toolchain use 0.16.0
-zim toolchain pin 0.16.0
-zim target add wasm32-wasi
-zim deps verify
-zim verify --policy strict
-zim cache clean --older-than 30d
-zim ci bootstrap
+### ✅ Milestone 0.1 — Core Features (Current)
+
+- ✅ Toolchain management (install, use, pin)
+- ✅ Dependency management (add, fetch, graph)
+- ✅ Content-addressed caching
+- ✅ Semantic versioning with constraints
+- ✅ Hash verification
+- ✅ Cross-compilation targets
+- ✅ Dependency resolution with conflict detection
+- ✅ Git dependency support
+- ✅ build.zig.zon integration
+
+### 🚧 Milestone 0.2 — Polish & Package Registry
+
+- 🚧 Public package registry
+- 🚧 Workspace/monorepo support
+- 🚧 Parallel downloads with progress bars
+- 🚧 Mirror support for offline builds
+- 🚧 Enhanced cache management
+- 🚧 Performance optimizations
+
+### 📋 Milestone 0.3 — Advanced Security
+
+- 📋 Package signature verification
+- 📋 SBOM (Software Bill of Materials) generation
+- 📋 Provenance tracking
+- 📋 Policy enforcement
+- 📋 Attestation logs
+
+### 🔮 Future
+
+- WASM runtime integration
+- CI/CD bootstrap commands
+- Metrics and telemetry
+- Advanced policy controls
+
+---
+
+## 🧠 Philosophy
+
+**Reproducibility First:** Every build is tied to a specific Zig version and dependency state via lockfiles.
+
+**Security by Default:** All downloads are verified. Hash mismatches automatically delete corrupted files.
+
+**Developer Experience:** Beautiful CLI output, comprehensive docs, and helpful error messages.
+
+**Performance:** Written in Zig, statically linked, portable, and blazingly fast.
+
+**Composability:** Works seamlessly with the entire Ghost Stack ecosystem.
+
+---
+
+## 🤝 Contributing
+
+We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+### Development Setup
+
+```bash
+# Clone repository
+git clone https://github.com/ghostkellz/zim.git
+cd zim
+
+# Build
+zig build
+
+# Run tests
+zig build test
+
+# Run ZIM
+./zig-out/bin/zim --help
 ```
 
 ---
 
-### Tagline
+## 📜 License
 
-**ZIM — The missing link in the Zig toolchain.**
+MIT License - see [LICENSE](LICENSE) for details.
+
+---
+
+## 🙏 Acknowledgments
+
+- **Zig Team** — For creating an amazing language
+- **Ghost Stack** — For the high-quality Zig libraries
+- **Babylon** — Inspiration for content-addressed caching
+- **Cargo & Rustup** — Design inspiration for package and toolchain management
+
+---
+
+<div align="center">
+
+## 🌟 ZIM — The missing link in the Zig toolchain
+
+**[Install Now](#installation) • [Documentation](docs/) • [Report Issue](https://github.com/ghostkellz/zim/issues) • [Contribute](#contributing)**
+
+</div>
 

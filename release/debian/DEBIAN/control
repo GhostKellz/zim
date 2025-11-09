@@ -1,0 +1,19 @@
+Package: zim
+Version: 0.1.0-1
+Section: devel
+Priority: optional
+Architecture: amd64
+Depends: git, curl, tar, xz-utils
+Maintainer: Ghost Kellz <ghostkellz@example.com>
+Description: Zig Infrastructure Manager - All-in-one toolchain and package manager
+ ZIM is the next-generation toolchain and package manager for Zig,
+ unifying what rustup and cargo do for Rust into one cohesive tool.
+ .
+ Features:
+  * Toolchain management (install, use, pin Zig versions)
+  * Dependency management with semantic versioning
+  * Content-addressed caching
+  * Cross-compilation target support
+  * Hash verification and integrity checks
+  * Beautiful CLI with comprehensive documentation
+Homepage: https://github.com/ghostkellz/zim

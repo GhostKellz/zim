@@ -1,0 +1,38 @@
+# Example ZIM project configuration
+# Save this as .zim/toolchain.toml in your project root
+
+# Zig version to use for this project
+zig = "0.16.0"
+
+# Cross-compilation targets
+targets = ["x86_64-linux-gnu", "aarch64-linux-gnu", "wasm32-wasi"]
+
+# Default target (optional)
+# default_target = "x86_64-linux-gnu"
+
+[registry]
+# Registry URL (optional, defaults to official Zig package registry)
+url = "https://registry.zim.dev"
+
+# Lockfile path
+lockfile = "zim.lock"
+
+[cache]
+# Cache directory (optional, defaults to platform-specific cache dir)
+# path = "~/.cache/zim"
+
+# Maximum cache size (optional)
+max_size = "10GB"
+
+[policy]
+# Require cryptographic signatures for toolchains and packages
+require_signatures = false
+
+# Minimum signature level (options: "basic", "sigstore", "veridion")
+# min_sig_level = "sigstore"
+
+# Allowed package sources (prefix wildcards supported)
+# allow = ["ghostkellz/*", "ziglang/*"]
+
+# Denied package sources
+# deny = ["malicious/*"]

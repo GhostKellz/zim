@@ -1,10 +1,34 @@
 const std = @import("std");
-const zim = @import("zim");
+const cli = @import("cli/cli.zig");
 
 pub fn main() !void {
-    // Prints to stderr, ignoring potential errors.
-    std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
-    try zim.bufferedPrint();
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+
+    const args = try std.process.argsAlloc(allocator);
+    defer std.process.argsFree(allocator, args);
+
+    const exit_code = cli.run(allocator, args) catch |err| switch (err) {
+        error.OutOfMemory => {
+            std.debug.print("Error: Out of memory\n", .{});
+            return err;
+        },
+        error.UnknownCommand => {
+            std.debug.print("Error: Unknown command\n", .{});
+            return err;
+        },
+        error.MissingArguments => {
+            std.debug.print("Error: Missing arguments\n", .{});
+            return err;
+        },
+        else => {
+            std.debug.print("Error: {}\n", .{err});
+            return err;
+        },
+    };
+
+    std.process.exit(exit_code);
 }
 
 test "simple test" {

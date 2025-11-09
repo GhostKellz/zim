@@ -1,0 +1,48 @@
+# Maintainer: Ghost Kellz <ghostkellz@example.com>
+pkgname=zim
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Zig Infrastructure Manager - All-in-one toolchain and package manager for Zig"
+arch=('x86_64' 'aarch64')
+url="https://github.com/ghostkellz/zim"
+license=('MIT')
+depends=('git' 'curl' 'tar' 'xz')
+makedepends=('zig>=0.16.0')
+source=("${pkgname}-${pkgver}.tar.gz::https://github.com/ghostkellz/${pkgname}/archive/v${pkgver}.tar.gz")
+sha256sums=('SKIP')  # Update with actual hash after release
+
+build() {
+    cd "${srcdir}/${pkgname}-${pkgver}"
+
+    # Build ZIM with release optimizations
+    zig build -Doptimize=ReleaseSafe
+}
+
+check() {
+    cd "${srcdir}/${pkgname}-${pkgver}"
+
+    # Run tests
+    zig build test
+}
+
+package() {
+    cd "${srcdir}/${pkgname}-${pkgver}"
+
+    # Install binary
+    install -Dm755 "zig-out/bin/zim" "${pkgdir}/usr/bin/zim"
+
+    # Install documentation
+    install -Dm644 README.md "${pkgdir}/usr/share/doc/${pkgname}/README.md"
+    install -Dm644 docs/CLI.md "${pkgdir}/usr/share/doc/${pkgname}/CLI.md"
+    install -Dm644 docs/API.md "${pkgdir}/usr/share/doc/${pkgname}/API.md"
+
+    # Install license
+    install -Dm644 LICENSE "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+
+    # Install shell completions (if available in future)
+    # install -Dm644 "completions/zim.bash" "${pkgdir}/usr/share/bash-completion/completions/zim"
+    # install -Dm644 "completions/zim.zsh" "${pkgdir}/usr/share/zsh/site-functions/_zim"
+    # install -Dm644 "completions/zim.fish" "${pkgdir}/usr/share/fish/vendor_completions.d/zim.fish"
+}
+
+# vim:set ts=4 sw=4 et:

@@ -1,0 +1,49 @@
+# Example ZIM global configuration
+# Save this as ~/.config/zim/config.toml (Linux/macOS)
+# or %APPDATA%\zim\config.toml (Windows)
+
+# Global Zig version (can be overridden per-project)
+zig_version = "0.16.0"
+
+# Toolchain installation directory
+toolchain_dir = "~/.zim/toolchains"
+
+# Use local toolchains from /data/projects/zig-toolchains/
+use_local_toolchains = true
+
+# Global cache settings
+[cache]
+dir = "~/.cache/zim"
+max_size = "50GB"
+
+# Global registry settings
+[registry]
+url = "https://registry.zim.dev"
+mirror = "https://mirror.zim.dev"
+
+# Global policy settings
+[policy]
+require_signatures = false
+allowed_sources = ["ghostkellz/*", "ziglang/*"]
+denied_sources = []
+
+# Ghost Stack integration paths
+[ghost]
+local_projects_root = "/data/projects"
+
+# Explicitly enable Ghost Stack libraries (auto-detected by default)
+use_zsync = true
+use_zontom = true
+use_zhttp = true
+use_phantom = false  # Disable TUI mode by default
+use_ghostlang = false  # Disable scripting mode by default
+
+# TLS/CA configuration
+[tls]
+# Path to CA bundle (leave empty for auto-detection)
+# ca_bundle = "/etc/ssl/certs/ca-certificates.crt"
+
+# Telemetry (optional, disabled by default)
+[telemetry]
+enabled = false
+# endpoint = "https://telemetry.zim.dev"
