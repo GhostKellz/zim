@@ -175,6 +175,93 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_mod_tests.step);
     test_step.dependOn(&run_exe_tests.step);
 
+    // Add unit tests
+    const unit_test_step = b.step("test-unit", "Run unit tests");
+
+    // Create test exports module that provides access to source code
+    const test_exports = b.addModule("test_exports", .{
+        .root_source_file = b.path("src/test_exports.zig"),
+        .target = target,
+    });
+
+    // Create test imports module
+    const test_imports = b.addModule("test_imports", .{
+        .root_source_file = b.path("test/test_imports.zig"),
+        .target = target,
+        .imports = &.{
+            .{ .name = "test_exports", .module = test_exports },
+        },
+    });
+
+    // System Zig unit tests
+    const system_zig_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("test/unit/test_system_zig.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "test_imports", .module = test_imports },
+            },
+        }),
+    });
+    const run_system_zig_tests = b.addRunArtifact(system_zig_tests);
+    unit_test_step.dependOn(&run_system_zig_tests.step);
+    test_step.dependOn(&run_system_zig_tests.step);
+
+    // ZLS unit tests
+    const zls_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("test/unit/test_zls.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "test_imports", .module = test_imports },
+            },
+        }),
+    });
+    const run_zls_tests = b.addRunArtifact(zls_tests);
+    unit_test_step.dependOn(&run_zls_tests.step);
+    test_step.dependOn(&run_zls_tests.step);
+
+    // Benchmarks
+    const bench_step = b.step("bench", "Run benchmarks");
+
+    // System Zig benchmarks
+    const system_zig_bench = b.addExecutable(.{
+        .name = "bench_system_zig",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("test/benchmarks/bench_system_zig.zig"),
+            .target = target,
+            .optimize = .ReleaseFast,
+            .imports = &.{
+                .{ .name = "test_imports", .module = test_imports },
+            },
+        }),
+    });
+    b.installArtifact(system_zig_bench);
+    const run_system_zig_bench = b.addRunArtifact(system_zig_bench);
+    bench_step.dependOn(&run_system_zig_bench.step);
+
+    // ZLS benchmarks
+    const zls_bench = b.addExecutable(.{
+        .name = "bench_zls",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("test/benchmarks/bench_zls.zig"),
+            .target = target,
+            .optimize = .ReleaseFast,
+            .imports = &.{
+                .{ .name = "test_imports", .module = test_imports },
+            },
+        }),
+    });
+    b.installArtifact(zls_bench);
+    const run_zls_bench = b.addRunArtifact(zls_bench);
+    bench_step.dependOn(&run_zls_bench.step);
+
+    // Memory leak check step (uses testing allocator)
+    const memcheck_step = b.step("memcheck", "Run memory leak detection tests");
+    memcheck_step.dependOn(unit_test_step);
+
     // Just like flags, top level steps are also listed in the `--help` menu.
     //
     // The Zig build system is entirely implemented in userland, which means

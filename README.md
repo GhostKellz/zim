@@ -30,9 +30,11 @@ ZIM eliminates fragmented workflows by merging **toolchain and dependency manage
 
 ### 🔧 Toolchain Management (like `rustup`)
 - **Install multiple Zig versions** side-by-side with cryptographic verification
+- **System Zig detection** — automatically detect and use system-installed Zig (anyzig-style)
 - **Global and per-project pinning** — set active version globally or via `.zim/toolchain.toml`
 - **Automatic toolchain detection** — respects project-specific Zig versions
 - **Verified downloads** — SHA-256 hash verification using zcrypto
+- **ZLS management** — install, configure, and manage Zig Language Server
 
 ### 📦 Dependency Management (like `cargo`)
 - **Multiple dependency sources:** Git repositories, tarballs, local paths, and registries (future)
@@ -135,6 +137,17 @@ zim install 0.16.0
 
 # Set as global active version
 zim use 0.16.0
+
+# Or use system-installed Zig (if available)
+zim use system
+
+# Check current active Zig version
+zim toolchain current
+
+# Setup ZLS (Zig Language Server)
+zim zls doctor              # Check ZLS installation and health
+zim zls config              # Generate optimal ZLS configuration
+zim zls info                # Show ZLS version and info
 
 # Initialize a new project
 zim deps init my-awesome-project

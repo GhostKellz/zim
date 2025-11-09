@@ -4,6 +4,7 @@ const config_mod = @import("../config/config.zig");
 const toolchain_mod = @import("../toolchain/toolchain.zig");
 const deps_mod = @import("../deps/deps.zig");
 const target_mod = @import("../target/target.zig");
+const zls_mod = @import("../zls/zls.zig");
 
 /// Command represents all available ZIM commands
 pub const Command = enum {
@@ -11,6 +12,9 @@ pub const Command = enum {
     toolchain,
     install, // shorthand for toolchain install
     use, // shorthand for toolchain use
+
+    // ZLS commands
+    zls,
 
     // Target commands
     target,
@@ -41,6 +45,13 @@ pub const SubCommand = enum {
     use_cmd, // 'use' is a keyword
     pin,
     list,
+    current,
+
+    // ZLS subcommands
+    doctor,
+    config,
+    update,
+    info,
 
     // Target subcommands
     add,
@@ -54,7 +65,6 @@ pub const SubCommand = enum {
     // Cache subcommands
     status,
     prune,
-    doctor,
 
     // Policy subcommands
     audit,
@@ -183,6 +193,7 @@ fn parseCommand(cmd: []const u8) !Command {
         .{ "toolchain", .toolchain },
         .{ "install", .install },
         .{ "use", .use },
+        .{ "zls", .zls },
         .{ "target", .target },
         .{ "deps", .deps },
         .{ "cache", .cache },
@@ -204,6 +215,7 @@ fn parseSubCommand(cmd: []const u8) !SubCommand {
         .{ "use", .use_cmd },
         .{ "pin", .pin },
         .{ "list", .list },
+        .{ "current", .current },
         .{ "add", .add },
         .{ "remove", .remove },
         .{ "init", .init },
@@ -212,6 +224,9 @@ fn parseSubCommand(cmd: []const u8) !SubCommand {
         .{ "status", .status },
         .{ "prune", .prune },
         .{ "doctor", .doctor },
+        .{ "config", .config },
+        .{ "update", .update },
+        .{ "info", .info },
         .{ "audit", .audit },
         .{ "bootstrap", .bootstrap },
     });
@@ -221,7 +236,7 @@ fn parseSubCommand(cmd: []const u8) !SubCommand {
 
 fn needsSubCommand(cmd: Command) bool {
     return switch (cmd) {
-        .toolchain, .target, .deps, .cache, .policy, .ci => true,
+        .toolchain, .zls, .target, .deps, .cache, .policy, .ci => true,
         else => false,
     };
 }
@@ -239,6 +254,7 @@ fn executeCommand(allocator: std.mem.Allocator, parsed: *const ParsedCommand) !u
         .toolchain => executeToolchainCommand(allocator, parsed),
         .install => executeShorthandInstall(allocator, parsed),
         .use => executeShorthandUse(allocator, parsed),
+        .zls => executeZlsCommand(allocator, parsed),
         .target => executeTargetCommand(allocator, parsed),
         .deps => executeDepsCommand(allocator, parsed),
         .cache => executeCacheCommand(allocator, parsed),
@@ -303,6 +319,13 @@ fn executeToolchainCommand(allocator: std.mem.Allocator, parsed: *const ParsedCo
         .list => {
             mgr.list() catch |err| {
                 std.debug.print("Error: Failed to list toolchains: {}\n", .{err});
+                return 1;
+            };
+            return 0;
+        },
+        .current => {
+            mgr.current() catch |err| {
+                std.debug.print("Error: Failed to get current version: {}\n", .{err});
                 return 1;
             };
             return 0;
@@ -596,6 +619,64 @@ fn executeCiCommand(allocator: std.mem.Allocator, parsed: *const ParsedCommand) 
     };
 }
 
+fn executeZlsCommand(allocator: std.mem.Allocator, parsed: *const ParsedCommand) !u8 {
+    var config = config_mod.Config.load(allocator) catch |err| {
+        std.debug.print("Error loading config: {}\n", .{err});
+        return 1;
+    };
+    defer config.deinit();
+
+    const zls_dir = try std.fs.path.join(allocator, &[_][]const u8{ config.getToolchainDir(), "zls" });
+    defer allocator.free(zls_dir);
+
+    // Use ~/.config/zim for ZLS config
+    const home_dir = std.posix.getenv("HOME") orelse "/root";
+    const config_dir = try std.fs.path.join(allocator, &[_][]const u8{ home_dir, ".config", "zim" });
+    defer allocator.free(config_dir);
+
+    var mgr = try zls_mod.ZlsManager.init(allocator, zls_dir, config_dir);
+    defer mgr.deinit();
+
+    const subcmd = parsed.subcommand orelse {
+        std.debug.print("Usage: zim zls <command>\n\n", .{});
+        std.debug.print("Commands:\n", .{});
+        std.debug.print("  doctor     - Run comprehensive ZLS health check\n", .{});
+        std.debug.print("  install    - Install ZLS\n", .{});
+        std.debug.print("  config     - Generate optimal ZLS configuration\n", .{});
+        std.debug.print("  update     - Update ZLS\n", .{});
+        std.debug.print("  info       - Show ZLS information\n", .{});
+        return 0;
+    };
+
+    switch (subcmd) {
+        .doctor => {
+            try mgr.doctor();
+            return 0;
+        },
+        .install => {
+            const version = if (parsed.args.len > 0) parsed.args[0] else null;
+            try mgr.install(version);
+            return 0;
+        },
+        .config => {
+            try mgr.generateConfig();
+            return 0;
+        },
+        .update => {
+            try mgr.update();
+            return 0;
+        },
+        .info => {
+            try mgr.info();
+            return 0;
+        },
+        else => {
+            std.debug.print("Error: Unknown ZLS subcommand\n", .{});
+            return 1;
+        },
+    }
+}
+
 fn printVersion() void {
     std.debug.print("zim 0.1.0-dev\n", .{});
     std.debug.print("Zig Infrastructure Manager\n", .{});
@@ -611,11 +692,19 @@ fn printHelp() void {
         \\
         \\TOOLCHAIN COMMANDS:
         \\    toolchain install <ver>    Install a Zig toolchain version
-        \\    toolchain use <ver>        Set global Zig version
+        \\    toolchain use <ver>        Set global Zig version (or 'system')
         \\    toolchain pin <ver>        Pin project to specific Zig version
         \\    toolchain list             List installed toolchains
+        \\    toolchain current          Show current active Zig version
         \\    install <ver>              Shorthand for 'toolchain install'
         \\    use <ver>                  Shorthand for 'toolchain use'
+        \\
+        \\ZLS COMMANDS:
+        \\    zls doctor                 Run comprehensive ZLS health check
+        \\    zls install [ver]          Install Zig Language Server
+        \\    zls config                 Generate optimal ZLS configuration
+        \\    zls update                 Update ZLS to latest version
+        \\    zls info                   Show ZLS installation information
         \\
         \\TARGET COMMANDS:
         \\    target add <triple>        Add cross-compilation target

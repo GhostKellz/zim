@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const download = @import("../util/download.zig");
+const system_zig = @import("system_zig.zig");
 
 /// Toolchain represents a Zig compiler installation
 pub const Toolchain = struct {
@@ -116,8 +117,13 @@ pub const ToolchainManager = struct {
         std.debug.print("✓ Zig {s} installed successfully\n", .{version});
     }
 
-    /// Switch to a specific Zig version globally
+    /// Switch to a specific Zig version globally (anyzig-style)
     pub fn use(self: *ToolchainManager, version: []const u8) !void {
+        // Handle "system" keyword for system Zig
+        if (std.mem.eql(u8, version, "system")) {
+            return try self.useSystemZig();
+        }
+
         std.debug.print("Switching to Zig {s}...\n", .{version});
 
         // Check if version is installed
@@ -131,6 +137,74 @@ pub const ToolchainManager = struct {
         try self.setGlobalVersion(version);
 
         std.debug.print("✓ Now using Zig {s}\n", .{version});
+    }
+
+    /// Use system Zig installation (anyzig-style)
+    pub fn useSystemZig(self: *ToolchainManager) !void {
+        var sys_zig = system_zig.SystemZig.init(self.allocator);
+
+        if (!sys_zig.isInstalled()) {
+            std.debug.print("❌ No system Zig installation found\n\n", .{});
+            try sys_zig.printStatus();
+            return error.SystemZigNotFound;
+        }
+
+        const version = try sys_zig.getVersion() orelse return error.SystemZigVersionUnknown;
+        defer self.allocator.free(version);
+
+        // Write a special marker for system Zig
+        try self.setGlobalVersion("system");
+
+        std.debug.print("✓ Now using system Zig ({s})\n", .{version});
+        if (sys_zig.getPath()) |path| {
+            std.debug.print("   Location: {s}\n", .{path});
+        }
+    }
+
+    /// Show current active Zig version (anyzig-style)
+    pub fn current(self: *ToolchainManager) !void {
+        std.debug.print("📍 Current Zig Configuration\n\n", .{});
+
+        const active = try self.getActiveVersion();
+        defer if (active) |v| self.allocator.free(v);
+
+        if (active) |version| {
+            if (std.mem.eql(u8, version, "system")) {
+                // Using system Zig
+                var sys_zig = system_zig.SystemZig.init(self.allocator);
+                if (try sys_zig.getInfo()) |info| {
+                    defer {
+                        var mut_info = info;
+                        mut_info.deinit();
+                    }
+                    std.debug.print("Active: ", .{});
+                    info.print();
+                } else {
+                    std.debug.print("Active: system (but not found)\n", .{});
+                }
+            } else {
+                // Using ZIM-managed Zig
+                const zig_path = try std.fs.path.join(
+                    self.allocator,
+                    &[_][]const u8{ self.toolchains_dir, version },
+                );
+                defer self.allocator.free(zig_path);
+
+                std.debug.print("Active: Zig {s} (ZIM-managed)\n", .{version});
+                std.debug.print("Location: {s}\n", .{zig_path});
+            }
+        } else {
+            std.debug.print("No active Zig version set\n\n", .{});
+
+            // Check for system Zig
+            var sys_zig = system_zig.SystemZig.init(self.allocator);
+            if (sys_zig.isInstalled()) {
+                std.debug.print("💡 System Zig is available\n", .{});
+                std.debug.print("   Run 'zim use system' to use it\n", .{});
+            } else {
+                std.debug.print("💡 Install Zig with: zim install 0.16.0\n", .{});
+            }
+        }
     }
 
     /// Pin a version to the current project
