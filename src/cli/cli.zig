@@ -5,6 +5,9 @@ const toolchain_mod = @import("../toolchain/toolchain.zig");
 const deps_mod = @import("../deps/deps.zig");
 const target_mod = @import("../target/target.zig");
 const zls_mod = @import("../zls/zls.zig");
+const doctor_mod = @import("doctor.zig");
+const self_update_mod = @import("../util/self_update.zig");
+const color = @import("../util/color.zig");
 
 /// Command represents all available ZIM commands
 pub const Command = enum {
@@ -31,6 +34,7 @@ pub const Command = enum {
 
     // Utility commands
     doctor,
+    update,
     version,
     help,
 
@@ -54,20 +58,28 @@ pub const SubCommand = enum {
     info,
 
     // Target subcommands
-    add,
-    remove,
+    add_target,
+    remove_target,
 
     // Deps subcommands
     init,
+    add_dep,
     fetch,
     graph,
+    import_zon,
+    export_zon,
 
     // Cache subcommands
     status,
     prune,
+    clean,
+    integrity,
 
     // Policy subcommands
     audit,
+
+    // Doctor subcommands
+    workspace,
 
     // CI subcommands
     bootstrap,
@@ -160,7 +172,7 @@ fn parseArgs(allocator: std.mem.Allocator, args: []const []const u8) !ParsedComm
             command = try parseCommand(arg);
         } else if (subcommand == null and needsSubCommand(command.?)) {
             // Second positional arg might be a subcommand
-            subcommand = parseSubCommand(arg) catch {
+            subcommand = parseSubCommand(command.?, arg) catch {
                 // Not a subcommand, treat as positional arg
                 try positional_args.append(allocator, arg);
                 continue;
@@ -176,7 +188,8 @@ fn parseArgs(allocator: std.mem.Allocator, args: []const []const u8) !ParsedComm
     }
 
     // Validate subcommand requirement
-    if (needsSubCommand(command.?) and subcommand == null) {
+    // Doctor is special - it can work with or without a subcommand
+    if (needsSubCommand(command.?) and subcommand == null and command.? != .doctor) {
         return CommandError.MissingSubCommand;
     }
 
@@ -200,6 +213,7 @@ fn parseCommand(cmd: []const u8) !Command {
         .{ "policy", .policy },
         .{ "verify", .verify },
         .{ "doctor", .doctor },
+        .{ "update", .update },
         .{ "version", .version },
         .{ "help", .help },
         .{ "mcp", .mcp },
@@ -209,25 +223,44 @@ fn parseCommand(cmd: []const u8) !Command {
     return commands.get(cmd) orelse CommandError.UnknownCommand;
 }
 
-fn parseSubCommand(cmd: []const u8) !SubCommand {
+fn parseSubCommand(parent_cmd: Command, cmd: []const u8) !SubCommand {
+    // Handle context-dependent subcommands
+    if (std.mem.eql(u8, cmd, "add")) {
+        return switch (parent_cmd) {
+            .target => .add_target,
+            .deps => .add_dep,
+            else => CommandError.UnknownSubCommand,
+        };
+    }
+    if (std.mem.eql(u8, cmd, "remove")) {
+        return switch (parent_cmd) {
+            .target => .remove_target,
+            else => CommandError.UnknownSubCommand,
+        };
+    }
+
+    // Handle all other subcommands
     const subcommands = std.StaticStringMap(SubCommand).initComptime(.{
         .{ "install", .install },
         .{ "use", .use_cmd },
         .{ "pin", .pin },
         .{ "list", .list },
         .{ "current", .current },
-        .{ "add", .add },
-        .{ "remove", .remove },
         .{ "init", .init },
         .{ "fetch", .fetch },
         .{ "graph", .graph },
+        .{ "import", .import_zon },
+        .{ "export", .export_zon },
         .{ "status", .status },
         .{ "prune", .prune },
+        .{ "clean", .clean },
+        .{ "integrity", .integrity },
         .{ "doctor", .doctor },
         .{ "config", .config },
         .{ "update", .update },
         .{ "info", .info },
         .{ "audit", .audit },
+        .{ "workspace", .workspace },
         .{ "bootstrap", .bootstrap },
     });
 
@@ -236,7 +269,7 @@ fn parseSubCommand(cmd: []const u8) !SubCommand {
 
 fn needsSubCommand(cmd: Command) bool {
     return switch (cmd) {
-        .toolchain, .zls, .target, .deps, .cache, .policy, .ci => true,
+        .toolchain, .zls, .target, .deps, .cache, .policy, .ci, .doctor => true,
         else => false,
     };
 }
@@ -261,6 +294,7 @@ fn executeCommand(allocator: std.mem.Allocator, parsed: *const ParsedCommand) !u
         .policy => executePolicyCommand(allocator, parsed),
         .verify => executeVerifyCommand(allocator, parsed),
         .doctor => executeDoctorCommand(allocator, parsed),
+        .update => executeUpdateCommand(allocator, parsed),
         .mcp => executeMcpCommand(allocator, parsed),
         .ci => executeCiCommand(allocator, parsed),
     };
@@ -369,7 +403,7 @@ fn executeTargetCommand(allocator: std.mem.Allocator, parsed: *const ParsedComma
     defer target_mgr.deinit();
 
     return switch (subcmd) {
-        .add => {
+        .add_target => {
             if (parsed.args.len == 0) {
                 std.debug.print("Error: Missing target triple\n", .{});
                 std.debug.print("Usage: zim target add <triple>\n", .{});
@@ -390,7 +424,7 @@ fn executeTargetCommand(allocator: std.mem.Allocator, parsed: *const ParsedComma
             };
             return 0;
         },
-        .remove => {
+        .remove_target => {
             if (parsed.args.len == 0) {
                 std.debug.print("Error: Missing target triple\n", .{});
                 std.debug.print("Usage: zim target remove <triple>\n", .{});
@@ -441,20 +475,109 @@ fn executeDepsCommand(allocator: std.mem.Allocator, parsed: *const ParsedCommand
             };
             return 0;
         },
-        .add => {
+        .add_dep => {
             if (parsed.args.len == 0) {
-                std.debug.print("Error: Missing dependency specification\n", .{});
-                std.debug.print("Usage: zim deps add <name> [--git <url> --ref <ref>]\n", .{});
-                std.debug.print("       zim deps add <name> [--tarball <url> --hash <hash>]\n", .{});
-                std.debug.print("       zim deps add <name> [--local <path>]\n", .{});
+                std.debug.print("Error: Missing dependency name\n", .{});
+                std.debug.print("Usage: zim deps add <name> --git <url> [--ref <ref>]\n", .{});
+                std.debug.print("       zim deps add <name> --tarball <url> --hash <hash>\n", .{});
+                std.debug.print("       zim deps add <name> --path <path>\n", .{});
                 return 1;
             }
 
-            // Parse dependency specification
-            // TODO: Implement full arg parsing for git/tarball/local sources
-            std.debug.print("Adding dependency: {s}\n", .{parsed.args[0]});
-            std.debug.print("(Full dependency addition not yet implemented)\n", .{});
-            std.debug.print("Please manually edit zim.toml to add dependencies\n", .{});
+            const dep_name = parsed.args[0];
+
+            // Parse dependency source from remaining args
+            var git_url: ?[]const u8 = null;
+            var git_ref: []const u8 = "main";
+            var tarball_url: ?[]const u8 = null;
+            var tarball_hash: ?[]const u8 = null;
+            var local_path: ?[]const u8 = null;
+
+            var i: usize = 1;
+            while (i < parsed.args.len) : (i += 1) {
+                const arg = parsed.args[i];
+                if (std.mem.eql(u8, arg, "--git")) {
+                    i += 1;
+                    if (i >= parsed.args.len) {
+                        std.debug.print("Error: --git requires a URL\n", .{});
+                        return 1;
+                    }
+                    git_url = parsed.args[i];
+                } else if (std.mem.eql(u8, arg, "--ref")) {
+                    i += 1;
+                    if (i >= parsed.args.len) {
+                        std.debug.print("Error: --ref requires a reference\n", .{});
+                        return 1;
+                    }
+                    git_ref = parsed.args[i];
+                } else if (std.mem.eql(u8, arg, "--tarball")) {
+                    i += 1;
+                    if (i >= parsed.args.len) {
+                        std.debug.print("Error: --tarball requires a URL\n", .{});
+                        return 1;
+                    }
+                    tarball_url = parsed.args[i];
+                } else if (std.mem.eql(u8, arg, "--hash")) {
+                    i += 1;
+                    if (i >= parsed.args.len) {
+                        std.debug.print("Error: --hash requires a hash\n", .{});
+                        return 1;
+                    }
+                    tarball_hash = parsed.args[i];
+                } else if (std.mem.eql(u8, arg, "--path")) {
+                    i += 1;
+                    if (i >= parsed.args.len) {
+                        std.debug.print("Error: --path requires a path\n", .{});
+                        return 1;
+                    }
+                    local_path = parsed.args[i];
+                }
+            }
+
+            // Create dependency based on source type
+            const dep = if (git_url) |url| deps_mod.Dependency{
+                .name = try allocator.dupe(u8, dep_name),
+                .source = .{
+                    .git = .{
+                        .url = try allocator.dupe(u8, url),
+                        .ref = try allocator.dupe(u8, git_ref),
+                    },
+                },
+            } else if (tarball_url) |url| blk: {
+                if (tarball_hash == null) {
+                    std.debug.print("Error: --tarball requires --hash\n", .{});
+                    return 1;
+                }
+                break :blk deps_mod.Dependency{
+                    .name = try allocator.dupe(u8, dep_name),
+                    .source = .{
+                        .tarball = .{
+                            .url = try allocator.dupe(u8, url),
+                            .hash = try allocator.dupe(u8, tarball_hash.?),
+                        },
+                    },
+                };
+            } else if (local_path) |path| deps_mod.Dependency{
+                .name = try allocator.dupe(u8, dep_name),
+                .source = .{
+                    .local = .{
+                        .path = try allocator.dupe(u8, path),
+                    },
+                },
+            } else {
+                std.debug.print("Error: Must specify --git, --tarball, or --path\n", .{});
+                return 1;
+            };
+
+            defer {
+                var mut_dep = dep;
+                mut_dep.deinit(allocator);
+            }
+
+            dep_mgr.addDependency(dep) catch |err| {
+                std.debug.print("Error adding dependency: {}\n", .{err});
+                return 1;
+            };
             return 0;
         },
         .fetch => {
@@ -471,9 +594,29 @@ fn executeDepsCommand(allocator: std.mem.Allocator, parsed: *const ParsedCommand
             };
             return 0;
         },
+        .import_zon => {
+            // Default to build.zig.zon in current directory
+            const zon_path = if (parsed.args.len > 0) parsed.args[0] else "build.zig.zon";
+
+            dep_mgr.importFromZon(zon_path) catch |err| {
+                std.debug.print("Error importing from build.zig.zon: {}\n", .{err});
+                return 1;
+            };
+            return 0;
+        },
+        .export_zon => {
+            // Default to build.zig.zon in current directory
+            const zon_path = if (parsed.args.len > 0) parsed.args[0] else "build.zig.zon";
+
+            dep_mgr.exportToZon(zon_path) catch |err| {
+                std.debug.print("Error exporting to build.zig.zon: {}\n", .{err});
+                return 1;
+            };
+            return 0;
+        },
         else => {
             std.debug.print("Error: Invalid subcommand for 'deps'\n", .{});
-            std.debug.print("Available subcommands: init, add, fetch, graph\n", .{});
+            std.debug.print("Available subcommands: init, add, fetch, graph, import, export\n", .{});
             return 1;
         },
     };
@@ -520,16 +663,31 @@ fn executeCacheCommand(allocator: std.mem.Allocator, parsed: *const ParsedComman
             };
             return 0;
         },
+        .clean => {
+            dep_mgr.cleanCache() catch |err| {
+                std.debug.print("Error cleaning cache: {}\n", .{err});
+                return 1;
+            };
+            color.success("✓ Cache cleaned successfully\n", .{});
+            return 0;
+        },
+        .integrity => {
+            doctor_mod.checkCacheIntegrity(allocator) catch |err| {
+                color.error_("Error checking cache integrity: {}\n", .{err});
+                return 1;
+            };
+            return 0;
+        },
         .doctor => {
-            std.debug.print("Running cache diagnostics...\n", .{});
-            std.debug.print("  Cache directory: {s}\n", .{config.getCacheDir()});
-            // TODO: Verify cache integrity
-            std.debug.print("(Cache verification not yet implemented)\n", .{});
+            doctor_mod.checkCacheIntegrity(allocator) catch |err| {
+                color.error_("Error checking cache integrity: {}\n", .{err});
+                return 1;
+            };
             return 0;
         },
         else => {
             std.debug.print("Error: Invalid subcommand for 'cache'\n", .{});
-            std.debug.print("Available subcommands: status, prune, doctor\n", .{});
+            std.debug.print("Available subcommands: status, prune, clean, integrity, doctor\n", .{});
             return 1;
         },
     };
@@ -582,14 +740,43 @@ fn executeVerifyCommand(allocator: std.mem.Allocator, parsed: *const ParsedComma
 }
 
 fn executeDoctorCommand(allocator: std.mem.Allocator, parsed: *const ParsedCommand) !u8 {
-    _ = allocator;
+    const subcmd = parsed.subcommand;
+
+    if (subcmd) |cmd| {
+        return switch (cmd) {
+            .workspace => {
+                doctor_mod.checkWorkspace(allocator) catch |err| {
+                    color.error_("Error checking workspace: {}\n", .{err});
+                    return 1;
+                };
+                return 0;
+            },
+            else => {
+                std.debug.print("Unknown doctor subcommand\n", .{});
+                return 1;
+            },
+        };
+    }
+
+    // No subcommand - run all diagnostics
+    doctor_mod.runDiagnostics(allocator) catch |err| {
+        color.error_("Error running diagnostics: {}\n", .{err});
+        return 1;
+    };
+
+    return 0;
+}
+
+fn executeUpdateCommand(allocator: std.mem.Allocator, parsed: *const ParsedCommand) !u8 {
     _ = parsed;
-    std.debug.print("Running ZIM diagnostics...\n", .{});
-    std.debug.print("\nChecking TLS/CA configuration...\n", .{});
-    std.debug.print("Checking network connectivity...\n", .{});
-    std.debug.print("Checking toolchain installations...\n", .{});
-    // TODO: Implement comprehensive health checks
-    std.debug.print("(Not yet implemented)\n", .{});
+
+    const version = "0.3.4"; // TODO: Get from build info
+
+    self_update_mod.interactiveUpdate(allocator, version) catch |err| {
+        color.error_("Update failed: {}\n", .{err});
+        return 1;
+    };
+
     return 0;
 }
 
@@ -678,79 +865,123 @@ fn executeZlsCommand(allocator: std.mem.Allocator, parsed: *const ParsedCommand)
 }
 
 fn printVersion() void {
-    std.debug.print("zim 0.1.0-dev\n", .{});
+    color.init();
+    color.bold("zim", .{});
+    std.debug.print(" ", .{});
+    color.cyan("0.1.0-dev", .{});
+    std.debug.print("\n", .{});
     std.debug.print("Zig Infrastructure Manager\n", .{});
-    std.debug.print("Zig version: {s}\n", .{builtin.zig_version_string});
+    std.debug.print("Zig version: ", .{});
+    color.green("{s}", .{builtin.zig_version_string});
+    std.debug.print("\n", .{});
 }
 
 fn printHelp() void {
-    const message =
-        \\zim - Zig Infrastructure Manager
-        \\
-        \\USAGE:
-        \\    zim <COMMAND> [OPTIONS]
-        \\
-        \\TOOLCHAIN COMMANDS:
-        \\    toolchain install <ver>    Install a Zig toolchain version
-        \\    toolchain use <ver>        Set global Zig version (or 'system')
-        \\    toolchain pin <ver>        Pin project to specific Zig version
-        \\    toolchain list             List installed toolchains
-        \\    toolchain current          Show current active Zig version
-        \\    install <ver>              Shorthand for 'toolchain install'
-        \\    use <ver>                  Shorthand for 'toolchain use'
-        \\
-        \\ZLS COMMANDS:
-        \\    zls doctor                 Run comprehensive ZLS health check
-        \\    zls install [ver]          Install Zig Language Server
-        \\    zls config                 Generate optimal ZLS configuration
-        \\    zls update                 Update ZLS to latest version
-        \\    zls info                   Show ZLS installation information
-        \\
-        \\TARGET COMMANDS:
-        \\    target add <triple>        Add cross-compilation target
-        \\    target list                List available targets
-        \\    target remove <triple>     Remove a target
-        \\
-        \\DEPENDENCY COMMANDS:
-        \\    deps init                  Initialize dependency manifest
-        \\    deps add <spec>            Add a dependency
-        \\    deps fetch                 Fetch and cache dependencies
-        \\    deps graph                 Show dependency graph
-        \\
-        \\CACHE COMMANDS:
-        \\    cache status               Show cache statistics
-        \\    cache prune [--dry-run]    Prune unused cache entries
-        \\    cache doctor               Verify cache integrity
-        \\
-        \\POLICY COMMANDS:
-        \\    policy audit               Audit dependencies against policy
-        \\    verify                     Verify project integrity
-        \\
-        \\UTILITY COMMANDS:
-        \\    doctor                     Run system diagnostics
-        \\    ci bootstrap               Generate CI configuration
-        \\    version                    Show version information
-        \\    help                       Show this help message
-        \\
-        \\GLOBAL OPTIONS:
-        \\    --json                     Output in JSON format
-        \\    --verbose, -v              Verbose output
-        \\    --quiet, -q                Minimal output
-        \\    --cache-dir <dir>          Override cache directory
-        \\    --config <file>            Use specific config file
-        \\    --help, -h                 Show help
-        \\    --version                  Show version
-        \\
-        \\EXAMPLES:
-        \\    zim install 0.16.0         Install Zig 0.16.0
-        \\    zim use 0.16.0             Switch to Zig 0.16.0
-        \\    zim deps add /data/projects/zsync
-        \\    zim target add wasm32-wasi
-        \\    zim verify --json
-        \\
-        \\For more information, visit: https://github.com/ghostkellz/zim
-        \\
-    ;
+    color.init();
 
-    std.debug.print("{s}", .{message});
+    color.bold("\nzim", .{});
+    std.debug.print(" - Zig Infrastructure Manager\n\n", .{});
+
+    color.bold("USAGE:\n", .{});
+    std.debug.print("    zim ", .{});
+    color.cyan("<COMMAND>", .{});
+    std.debug.print(" [OPTIONS]\n\n", .{});
+
+    color.yellow("TOOLCHAIN COMMANDS:\n", .{});
+    printCommand("toolchain install", "<ver>", "Install a Zig toolchain version");
+    printCommand("toolchain use", "<ver>", "Set global Zig version (or 'system')");
+    printCommand("toolchain pin", "<ver>", "Pin project to specific Zig version");
+    printCommand("toolchain list", "", "List installed toolchains");
+    printCommand("toolchain current", "", "Show current active Zig version");
+    printCommand("install", "<ver>", "Shorthand for 'toolchain install'");
+    printCommand("use", "<ver>", "Shorthand for 'toolchain use'");
+    std.debug.print("\n", .{});
+
+    color.yellow("ZLS COMMANDS:\n", .{});
+    printCommand("zls doctor", "", "Run comprehensive ZLS health check");
+    printCommand("zls install", "[ver]", "Install Zig Language Server");
+    printCommand("zls config", "", "Generate optimal ZLS configuration");
+    printCommand("zls update", "", "Update ZLS to latest version");
+    printCommand("zls info", "", "Show ZLS installation information");
+    std.debug.print("\n", .{});
+
+    color.yellow("TARGET COMMANDS:\n", .{});
+    printCommand("target add", "<triple>", "Add cross-compilation target");
+    printCommand("target list", "", "List available targets");
+    printCommand("target remove", "<triple>", "Remove a target");
+    std.debug.print("\n", .{});
+
+    color.yellow("DEPENDENCY COMMANDS:\n", .{});
+    printCommand("deps init", "", "Initialize dependency manifest");
+    printCommand("deps add", "<spec>", "Add a dependency");
+    printCommand("deps fetch", "", "Fetch and cache dependencies");
+    printCommand("deps graph", "", "Show dependency graph");
+    std.debug.print("\n", .{});
+
+    color.yellow("CACHE COMMANDS:\n", .{});
+    printCommand("cache status", "", "Show cache statistics");
+    printCommand("cache prune", "[--dry-run]", "Prune unused cache entries");
+    printCommand("cache doctor", "", "Verify cache integrity");
+    std.debug.print("\n", .{});
+
+    color.yellow("POLICY COMMANDS:\n", .{});
+    printCommand("policy audit", "", "Audit dependencies against policy");
+    printCommand("verify", "", "Verify project integrity");
+    std.debug.print("\n", .{});
+
+    color.yellow("UTILITY COMMANDS:\n", .{});
+    printCommand("doctor", "", "Run system diagnostics");
+    printCommand("ci bootstrap", "", "Generate CI configuration");
+    printCommand("version", "", "Show version information");
+    printCommand("help", "", "Show this help message");
+    std.debug.print("\n", .{});
+
+    color.yellow("GLOBAL OPTIONS:\n", .{});
+    std.debug.print("    --json                     Output in JSON format\n", .{});
+    std.debug.print("    --verbose, -v              Verbose output\n", .{});
+    std.debug.print("    --quiet, -q                Minimal output\n", .{});
+    std.debug.print("    --cache-dir <dir>          Override cache directory\n", .{});
+    std.debug.print("    --config <file>            Use specific config file\n", .{});
+    std.debug.print("    --help, -h                 Show help\n", .{});
+    std.debug.print("    --version                  Show version\n\n", .{});
+
+    color.yellow("EXAMPLES:\n", .{});
+    std.debug.print("    ", .{});
+    color.green("zim install 0.16.0", .{});
+    std.debug.print("         Install Zig 0.16.0\n", .{});
+    std.debug.print("    ", .{});
+    color.green("zim use 0.16.0", .{});
+    std.debug.print("             Switch to Zig 0.16.0\n", .{});
+    std.debug.print("    ", .{});
+    color.green("zim deps add /data/projects/zsync", .{});
+    std.debug.print("\n", .{});
+    std.debug.print("    ", .{});
+    color.green("zim target add wasm32-wasi", .{});
+    std.debug.print("\n", .{});
+    std.debug.print("    ", .{});
+    color.green("zim verify --json", .{});
+    std.debug.print("\n\n", .{});
+
+    std.debug.print("For more information, visit: ", .{});
+    color.cyan("https://github.com/ghostkellz/zim", .{});
+    std.debug.print("\n\n", .{});
+}
+
+fn printCommand(cmd: []const u8, args: []const u8, description: []const u8) void {
+    std.debug.print("    ", .{});
+    color.green("{s}", .{cmd});
+    if (args.len > 0) {
+        std.debug.print(" ", .{});
+        color.cyan("{s}", .{args});
+    }
+
+    // Calculate padding for alignment
+    const cmd_len = cmd.len + args.len + if (args.len > 0) @as(usize, 1) else 0;
+    const padding = if (cmd_len < 26) 26 - cmd_len else 2;
+    var i: usize = 0;
+    while (i < padding) : (i += 1) {
+        std.debug.print(" ", .{});
+    }
+
+    std.debug.print("{s}\n", .{description});
 }

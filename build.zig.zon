@@ -52,17 +52,18 @@
             .url = "https://github.com/ghostkellz/zontom/archive/main.tar.gz",
             .hash = "zontom-0.1.0-2iAquJfUAgCaGwCZPlUUShBC6e1dhfgSioYvIjC9qOvF",
         },
-        .phantom = .{
-            .url = "https://github.com/ghostkellz/phantom/archive/main.tar.gz",
-            .hash = "phantom-0.8.0-E0eWBHVPHgBuWxuYeMJW29rOtiE1U_-6j57jQyLyihOe",
-        },
+        // TODO: Add phantom back when TUI is implemented
+        // .phantom = .{
+        //     .url = "https://github.com/ghostkellz/phantom/archive/main.tar.gz",
+        //     .hash = "phantom-0.8.2-E0eWBApaHgC4rvbLBYQ75LFL4WWqWIhwbi-UvpZBJoK6",
+        // },
         .zdoc = .{
             .url = "https://github.com/ghostkellz/zdoc/archive/main.tar.gz",
             .hash = "zdoc-0.1.0-ARcu67hxAgBqUFUj2an9vBgIPfNTqX5L8Z014NY-6HJJ",
         },
         .zhttp = .{
             .url = "https://github.com/ghostkellz/zhttp/archive/main.tar.gz",
-            .hash = "zhttp-0.1.4-jZpECLfOBQB1qCdgWtBpPS0yFItwNlAl7fnuMxV_qgIU",
+            .hash = "zhttp-0.1.4-jZpECLfOBQB-znuaKwh5GqPfowwEbOZxfJhxe22e0aBV",
         },
         .zigzag = .{
             .url = "https://github.com/ghostkellz/zigzag/archive/main.tar.gz",
@@ -70,7 +71,7 @@
         },
         .zpack = .{
             .url = "https://github.com/ghostkellz/zpack/archive/main.tar.gz",
-            .hash = "zpack-0.3.2-_6t6Jg10CAAy8EJzZFanljXUdaSuAmTDjsr9Qwljnlaz",
+            .hash = "zpack-0.3.3-_6t6JvlZCgAeKyBIFHNdf8taBB9fkEJ4Ut9GhHdZBnTd",
         },
         .zcrypto = .{
             .url = "https://github.com/ghostkellz/zcrypto/archive/main.tar.gz",
@@ -86,15 +87,19 @@
         },
         .ghostls = .{
             .url = "https://github.com/ghostkellz/ghostls/archive/main.tar.gz",
-            .hash = "ghostls-0.5.0-fDo9dEjzAwC3qdSADtgVvDNH0OYx6kpdu_TT37pdMJta",
+            .hash = "ghostls-0.6.0-fDo9dKmoBACQBQHIixNBCQK882OvkQFIJ9QDzMv59OSg",
         },
         .ghostlang = .{
             .url = "https://github.com/ghostkellz/ghostlang/archive/main.tar.gz",
-            .hash = "ghostlang-0.2.2-_SzSPdorBgDb16jpad7AWbfK0_D_mSlhFcNaKaLc5v9o",
+            .hash = "ghostlang-0.2.3-_SzSPVY-BwCxBoj7PrS8gxizxkcUJZdj0B8yDf6b3cIC",
         },
         .ghostspec = .{
             .url = "https://github.com/ghostkellz/ghostspec/archive/main.tar.gz",
             .hash = "ghostspec-0.9.2-RqtjskguAgC-kINWsUacQVy-G69ttyT1cUDotWgkbg_o",
+        },
+        .grove = .{
+            .url = "https://github.com/ghostkellz/grove/archive/main.tar.gz",
+            .hash = "grove-0.2.1-rGFsN2g-5ARHyAoh7CnzLilcF-E_2qZfqCxl_loQvVrY",
         },
     },
     .paths = .{

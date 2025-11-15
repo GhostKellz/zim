@@ -25,10 +25,11 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    const phantom = b.dependency("phantom", .{
-        .target = target,
-        .optimize = optimize,
-    });
+    // TODO: Add phantom back when TUI is implemented
+    // const phantom = b.dependency("phantom", .{
+    //     .target = target,
+    //     .optimize = optimize,
+    // });
     const zhttp = b.dependency("zhttp", .{
         .target = target,
         .optimize = optimize,
@@ -65,6 +66,11 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    const grove = b.dependency("grove", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
     // Create ZIM library module with all dependencies
     const mod = b.addModule("zim", .{
         .root_source_file = b.path("src/root.zig"),
@@ -75,7 +81,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "flare", .module = flare.module("flare") },
             .{ .name = "zlog", .module = zlog.module("zlog") },
             .{ .name = "zontom", .module = zontom.module("zontom") },
-            .{ .name = "phantom", .module = phantom.module("phantom") },
+            // .{ .name = "phantom", .module = phantom.module("phantom") },
             .{ .name = "zhttp", .module = zhttp.module("zhttp") },
             .{ .name = "zigzag", .module = zigzag.module("zigzag") },
             .{ .name = "zpack", .module = zpack.module("zpack") },
@@ -85,6 +91,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "ghostls", .module = ghostls.module("ghostls") },
             .{ .name = "ghostlang", .module = ghostlang.module("ghostlang") },
             .{ .name = "ghostspec", .module = ghostspec.module("ghostspec") },
+            .{ .name = "grove", .module = grove.module("grove") },
         },
     });
 
@@ -102,7 +109,7 @@ pub fn build(b: *std.Build) void {
                 .{ .name = "flare", .module = flare.module("flare") },
                 .{ .name = "zlog", .module = zlog.module("zlog") },
                 .{ .name = "zontom", .module = zontom.module("zontom") },
-                .{ .name = "phantom", .module = phantom.module("phantom") },
+                // .{ .name = "phantom", .module = phantom.module("phantom") },
                 .{ .name = "zhttp", .module = zhttp.module("zhttp") },
                 .{ .name = "zigzag", .module = zigzag.module("zigzag") },
                 .{ .name = "zpack", .module = zpack.module("zpack") },
@@ -112,6 +119,7 @@ pub fn build(b: *std.Build) void {
                 .{ .name = "ghostls", .module = ghostls.module("ghostls") },
                 .{ .name = "ghostlang", .module = ghostlang.module("ghostlang") },
                 .{ .name = "ghostspec", .module = ghostspec.module("ghostspec") },
+                .{ .name = "grove", .module = grove.module("grove") },
             },
         }),
     });

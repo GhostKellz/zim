@@ -1,7 +1,8 @@
 const std = @import("std");
-const version_mod = @import("../util/version.zig");
-const SemanticVersion = version_mod.SemanticVersion;
-const VersionConstraint = version_mod.VersionConstraint;
+const semver = @import("../util/semver.zig");
+const SemanticVersion = semver.Version;
+const VersionConstraint = semver.Constraint;
+const color = @import("../util/color.zig");
 
 /// Dependency requirement
 pub const Requirement = struct {
@@ -48,17 +49,48 @@ pub const Conflict = struct {
     }
 };
 
+/// Dependency graph node
+pub const DependencyNode = struct {
+    name: []const u8,
+    version: SemanticVersion,
+    dependencies: std.ArrayList([]const u8), // Names of dependencies
+
+    pub fn deinit(self: *DependencyNode, allocator: std.mem.Allocator) void {
+        allocator.free(self.name);
+        var mut_version = self.version;
+        mut_version.deinit(allocator);
+        for (self.dependencies.items) |dep| {
+            allocator.free(dep);
+        }
+        self.dependencies.deinit();
+    }
+};
+
+/// Circular dependency error
+pub const CircularDependency = struct {
+    cycle: std.ArrayList([]const u8), // Package names in the cycle
+
+    pub fn deinit(self: *CircularDependency, allocator: std.mem.Allocator) void {
+        for (self.cycle.items) |name| {
+            allocator.free(name);
+        }
+        self.cycle.deinit();
+    }
+};
+
 /// Dependency resolver
 pub const Resolver = struct {
     allocator: std.mem.Allocator,
     requirements: std.StringHashMap(std.ArrayList(Requirement)),
     resolved: std.StringHashMap(ResolvedPackage),
+    graph: std.StringHashMap(DependencyNode), // Dependency graph
 
     pub fn init(allocator: std.mem.Allocator) Resolver {
         return .{
             .allocator = allocator,
             .requirements = std.StringHashMap(std.ArrayList(Requirement)).init(allocator),
             .resolved = std.StringHashMap(ResolvedPackage).init(allocator),
+            .graph = std.StringHashMap(DependencyNode).init(allocator),
         };
     }
 
@@ -80,6 +112,14 @@ pub const Resolver = struct {
             pkg.deinit(self.allocator);
         }
         self.resolved.deinit();
+
+        // Free graph
+        var graph_it = self.graph.iterator();
+        while (graph_it.next()) |entry| {
+            var node = entry.value_ptr.*;
+            node.deinit(self.allocator);
+        }
+        self.graph.deinit();
     }
 
     /// Add a requirement
@@ -174,36 +214,239 @@ pub const Resolver = struct {
     ) bool {
         _ = self;
 
-        // Simple compatibility check
-        // In a real implementation, this would be more sophisticated
+        // Check if there's any version that satisfies both constraints
+        // This is a simplified check - a full implementation would find the intersection
         switch (constraint1.*) {
             .any => return true,
             .exact => |v1| {
+                // Exact version must satisfy the second constraint
+                return constraint2.satisfies(v1);
+            },
+            .caret => |v1| {
                 switch (constraint2.*) {
                     .any => return true,
-                    .exact => |v2| return v1.compare(&v2) == 0,
-                    .gte => |v2| return v1.compare(&v2) >= 0,
-                    .lt => |v2| return v1.compare(&v2) < 0,
-                    .caret, .tilde => return constraint2.matches(&v1),
-                    .wildcard => return constraint2.matches(&v1),
+                    .exact => |v2| return constraint1.satisfies(v2),
+                    .caret => |v2| {
+                        // Caret ranges are compatible if they overlap
+                        // ^1.2.3 and ^1.3.0 are compatible (both allow 1.x.x)
+                        // ^1.2.3 and ^2.0.0 are not compatible
+                        if (v1.major != v2.major) return false;
+                        return true;
+                    },
+                    .tilde => |v2| {
+                        // Check if base versions are compatible
+                        return constraint1.satisfies(v2);
+                    },
+                    else => return true, // Simplified for other cases
                 }
             },
-            else => {
-                // For other constraint types, we'd need to check if ranges overlap
-                return true; // Simplified for now
+            .tilde => |v1| {
+                switch (constraint2.*) {
+                    .any => return true,
+                    .exact => |v2| return constraint1.satisfies(v2),
+                    .tilde => |v2| {
+                        // Tilde ranges are compatible if major.minor match
+                        return v1.major == v2.major and v1.minor == v2.minor;
+                    },
+                    .caret => |v2| return constraint2.satisfies(v1),
+                    else => return true,
+                }
             },
+            .gte => |v1| {
+                switch (constraint2.*) {
+                    .any => return true,
+                    .exact => |v2| return constraint1.satisfies(v2),
+                    .lt, .lte => |v2| {
+                        // >=1.0.0 and <2.0.0 are compatible
+                        return v1.order(v2) != .gt;
+                    },
+                    else => return true,
+                }
+            },
+            .gt, .lt, .lte => return true, // Simplified
+            .range => |r1| {
+                switch (constraint2.*) {
+                    .any => return true,
+                    .exact => |v2| return constraint1.satisfies(v2),
+                    .range => |r2| {
+                        // Ranges overlap if min1 <= max2 and min2 <= max1
+                        const min_check = r1.min.order(r2.max);
+                        const max_check = r2.min.order(r1.max);
+                        return (min_check == .lt or min_check == .eq) and
+                               (max_check == .lt or max_check == .eq);
+                    },
+                    else => return true,
+                }
+            },
+        }
+    }
+
+    /// Detect circular dependencies using DFS
+    pub fn detectCircularDependencies(self: *Resolver) !?CircularDependency {
+        var visited = std.StringHashMap(void).init(self.allocator);
+        defer visited.deinit();
+
+        var rec_stack = std.StringHashMap(void).init(self.allocator);
+        defer rec_stack.deinit();
+
+        var path = std.ArrayList([]const u8).init(self.allocator);
+        defer path.deinit();
+
+        var it = self.graph.iterator();
+        while (it.next()) |entry| {
+            const pkg_name = entry.key_ptr.*;
+
+            if (visited.contains(pkg_name)) continue;
+
+            if (try self.hasCycleDFS(pkg_name, &visited, &rec_stack, &path)) {
+                // Found a cycle - return it
+                var cycle = CircularDependency{
+                    .cycle = std.ArrayList([]const u8).init(self.allocator),
+                };
+                for (path.items) |name| {
+                    try cycle.cycle.append(try self.allocator.dupe(u8, name));
+                }
+                return cycle;
+            }
+        }
+
+        return null;
+    }
+
+    fn hasCycleDFS(
+        self: *Resolver,
+        pkg_name: []const u8,
+        visited: *std.StringHashMap(void),
+        rec_stack: *std.StringHashMap(void),
+        path: *std.ArrayList([]const u8),
+    ) !bool {
+        try visited.put(pkg_name, {});
+        try rec_stack.put(pkg_name, {});
+        try path.append(pkg_name);
+
+        if (self.graph.get(pkg_name)) |node| {
+            for (node.dependencies.items) |dep_name| {
+                if (!visited.contains(dep_name)) {
+                    if (try self.hasCycleDFS(dep_name, visited, rec_stack, path)) {
+                        return true;
+                    }
+                } else if (rec_stack.contains(dep_name)) {
+                    // Found a cycle
+                    try path.append(dep_name);
+                    return true;
+                }
+            }
+        }
+
+        _ = rec_stack.remove(pkg_name);
+        _ = path.pop();
+        return false;
+    }
+
+    /// Add a package to the dependency graph
+    pub fn addToGraph(
+        self: *Resolver,
+        name: []const u8,
+        version: SemanticVersion,
+        dependencies: []const []const u8,
+    ) !void {
+        var deps_list = std.ArrayList([]const u8).init(self.allocator);
+        for (dependencies) |dep| {
+            try deps_list.append(try self.allocator.dupe(u8, dep));
+        }
+
+        try self.graph.put(name, .{
+            .name = try self.allocator.dupe(u8, name),
+            .version = try version.clone(self.allocator),
+            .dependencies = deps_list,
+        });
+    }
+
+    /// Print dependency graph as ASCII tree
+    pub fn printGraph(self: *Resolver, root_package: []const u8) void {
+        color.info("\n📦 Dependency Graph\n", .{});
+        color.dim("─────────────────────\n\n", .{});
+
+        var visited = std.StringHashMap(void).init(self.allocator);
+        defer visited.deinit();
+
+        self.printGraphNode(root_package, 0, "", &visited) catch {};
+    }
+
+    fn printGraphNode(
+        self: *Resolver,
+        pkg_name: []const u8,
+        depth: usize,
+        prefix: []const u8,
+        visited: *std.StringHashMap(void),
+    ) !void {
+        const is_visited = visited.contains(pkg_name);
+
+        if (self.graph.get(pkg_name)) |node| {
+            // Print package name with version
+            if (depth == 0) {
+                color.success("{s} @ {d}.{d}.{d}\n", .{
+                    pkg_name,
+                    node.version.major,
+                    node.version.minor,
+                    node.version.patch,
+                });
+            } else {
+                const tree_char = if (is_visited) "↻" else "├─";
+                std.debug.print("{s}{s} {s} @ {d}.{d}.{d}", .{
+                    prefix,
+                    tree_char,
+                    pkg_name,
+                    node.version.major,
+                    node.version.minor,
+                    node.version.patch,
+                });
+
+                if (is_visited) {
+                    color.dim(" (already shown)\n", .{});
+                } else {
+                    std.debug.print("\n", .{});
+                }
+            }
+
+            // Mark as visited
+            try visited.put(pkg_name, {});
+
+            // Don't recurse if already visited (prevent infinite loops)
+            if (is_visited and depth > 0) return;
+
+            // Print dependencies
+            for (node.dependencies.items, 0..) |dep_name, i| {
+                const is_last = i == node.dependencies.items.len - 1;
+                const new_prefix = if (depth == 0)
+                    ""
+                else if (is_last)
+                    try std.fmt.allocPrint(self.allocator, "{s}   ", .{prefix})
+                else
+                    try std.fmt.allocPrint(self.allocator, "{s}│  ", .{prefix});
+
+                defer if (depth > 0) self.allocator.free(new_prefix);
+
+                try self.printGraphNode(dep_name, depth + 1, new_prefix, visited);
+            }
+        } else {
+            // Package not in graph
+            if (depth > 0) {
+                color.dim("{s}├─ {s} (not resolved)\n", .{ prefix, pkg_name });
+            }
         }
     }
 
     /// Print resolution summary
     pub fn printSummary(self: *Resolver) void {
-        std.debug.print("\nDependency Resolution Summary:\n", .{});
+        color.info("\n📊 Dependency Resolution Summary\n", .{});
+        color.dim("──────────────────────────────────\n", .{});
         std.debug.print("  Total packages: {d}\n", .{self.resolved.count()});
         std.debug.print("  Requirements: {d}\n\n", .{self.requirements.count()});
 
         var it = self.resolved.iterator();
         while (it.next()) |entry| {
-            std.debug.print("  {s} @ {d}.{d}.{d}\n", .{
+            color.success("  ✓ {s} @ {d}.{d}.{d}\n", .{
                 entry.key_ptr.*,
                 entry.value_ptr.version.major,
                 entry.value_ptr.version.minor,

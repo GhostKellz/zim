@@ -15,10 +15,10 @@ pub const ZonDependency = struct {
 
 /// Parse build.zig.zon file
 pub fn parseBuildZon(allocator: std.mem.Allocator, path: []const u8) !std.ArrayList(ZonDependency) {
-    var deps = std.ArrayList(ZonDependency).init(allocator);
+    var deps = std.ArrayList(ZonDependency).initCapacity(allocator, 0) catch return error.OutOfMemory;
     errdefer {
         for (deps.items) |*dep| dep.deinit(allocator);
-        deps.deinit();
+        deps.deinit(allocator);
     }
 
     const file = std.fs.cwd().openFile(path, .{}) catch |err| {
@@ -66,11 +66,13 @@ pub fn parseBuildZon(allocator: std.mem.Allocator, path: []const u8) !std.ArrayL
         if (!in_dependencies) continue;
 
         // Parse dependency name: .zsync = .{
-        if (std.mem.startsWith(u8, trimmed, ".") and std.mem.indexOf(u8, trimmed, " = .{")) |eq_idx| {
-            const name_start = 1; // Skip leading '.'
-            const name = trimmed[name_start..eq_idx];
-            current_dep_name = name;
-            continue;
+        if (std.mem.startsWith(u8, trimmed, ".")) {
+            if (std.mem.indexOf(u8, trimmed, " = .{")) |eq_idx| {
+                const name_start = 1; // Skip leading '.'
+                const name = trimmed[name_start..eq_idx];
+                current_dep_name = name;
+                continue;
+            }
         }
 
         // Parse URL: .url = "https://..."
@@ -89,7 +91,7 @@ pub fn parseBuildZon(allocator: std.mem.Allocator, path: []const u8) !std.ArrayL
 
         // Check if we completed a dependency entry
         if (current_dep_name != null and current_url != null and current_hash != null) {
-            try deps.append(.{
+            try deps.append(allocator, .{
                 .name = try allocator.dupe(u8, current_dep_name.?),
                 .url = try allocator.dupe(u8, current_url.?),
                 .hash = try allocator.dupe(u8, current_hash.?),
@@ -100,12 +102,21 @@ pub fn parseBuildZon(allocator: std.mem.Allocator, path: []const u8) !std.ArrayL
         }
     }
 
+    // Check for any remaining dependency at the end of the file
+    if (current_dep_name != null and current_url != null and current_hash != null) {
+        try deps.append(allocator, .{
+            .name = try allocator.dupe(u8, current_dep_name.?),
+            .url = try allocator.dupe(u8, current_url.?),
+            .hash = try allocator.dupe(u8, current_hash.?),
+        });
+    }
+
     return deps;
 }
 
 /// Write build.zig.zon file
 pub fn writeBuildZon(
-    _: std.mem.Allocator,
+    allocator: std.mem.Allocator,
     path: []const u8,
     project_name: []const u8,
     version: []const u8,
@@ -114,8 +125,8 @@ pub fn writeBuildZon(
     const file = try std.fs.cwd().createFile(path, .{});
     defer file.close();
 
-    // Write header
-    try file.writer().print(
+    // Build the content using std.fmt
+    const header = try std.fmt.allocPrint(allocator,
         \\.{{
         \\    .name = "{s}",
         \\    .version = "{s}",
@@ -124,16 +135,21 @@ pub fn writeBuildZon(
         \\    .dependencies = .{{
         \\
     , .{ project_name, version });
+    defer allocator.free(header);
+
+    try file.writeAll(header);
 
     // Write dependencies
     for (deps) |dep| {
-        try file.writer().print(
+        const dep_str = try std.fmt.allocPrint(allocator,
             \\        .{s} = .{{
             \\            .url = "{s}",
             \\            .hash = "{s}",
             \\        }},
             \\
         , .{ dep.name, dep.url, dep.hash });
+        defer allocator.free(dep_str);
+        try file.writeAll(dep_str);
     }
 
     // Write footer

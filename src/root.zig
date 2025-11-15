@@ -14,6 +14,7 @@ pub const target = @import("target/target.zig");
 pub const util = struct {
     pub const version = @import("util/version.zig");
     pub const download = @import("util/download.zig");
+    pub const color = @import("util/color.zig");
 };
 
 // Version info

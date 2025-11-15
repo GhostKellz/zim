@@ -10,21 +10,21 @@ pub fn clone(
     std.debug.print("Cloning git repository: {s}\n", .{url});
 
     // Build git clone command
-    var argv = std.ArrayList([]const u8).init(allocator);
-    defer argv.deinit();
+    var argv = try std.ArrayList([]const u8).initCapacity(allocator, 8);
+    defer argv.deinit(allocator);
 
-    try argv.append("git");
-    try argv.append("clone");
-    try argv.append("--depth");
-    try argv.append("1"); // Shallow clone for speed
+    try argv.append(allocator, "git");
+    try argv.append(allocator, "clone");
+    try argv.append(allocator, "--depth");
+    try argv.append(allocator, "1"); // Shallow clone for speed
 
     if (ref) |r| {
-        try argv.append("--branch");
-        try argv.append(r);
+        try argv.append(allocator, "--branch");
+        try argv.append(allocator, r);
     }
 
-    try argv.append(url);
-    try argv.append(dest_path);
+    try argv.append(allocator, url);
+    try argv.append(allocator, dest_path);
 
     const result = try std.process.Child.run(.{
         .allocator = allocator,
@@ -33,9 +33,17 @@ pub fn clone(
     defer allocator.free(result.stdout);
     defer allocator.free(result.stderr);
 
-    if (result.term.Exited != 0) {
-        std.debug.print("Git clone failed: {s}\n", .{result.stderr});
-        return error.GitCloneFailed;
+    switch (result.term) {
+        .Exited => |code| {
+            if (code != 0) {
+                std.debug.print("Git clone failed (exit {d}): {s}\n", .{ code, result.stderr });
+                return error.GitCloneFailed;
+            }
+        },
+        else => {
+            std.debug.print("Git clone failed: {s}\n", .{result.stderr});
+            return error.GitCloneFailed;
+        },
     }
 
     std.debug.print("✓ Cloned successfully\n", .{});
@@ -58,9 +66,17 @@ pub fn getCurrentCommit(
     });
     defer allocator.free(result.stderr);
 
-    if (result.term.Exited != 0) {
-        allocator.free(result.stdout);
-        return error.GitRevParseFailed;
+    switch (result.term) {
+        .Exited => |code| {
+            if (code != 0) {
+                allocator.free(result.stdout);
+                return error.GitRevParseFailed;
+            }
+        },
+        else => {
+            allocator.free(result.stdout);
+            return error.GitRevParseFailed;
+        },
     }
 
     // Trim newline
@@ -87,8 +103,13 @@ pub fn fetch(allocator: std.mem.Allocator, repo_path: []const u8) !void {
     defer allocator.free(result.stdout);
     defer allocator.free(result.stderr);
 
-    if (result.term.Exited != 0) {
-        return error.GitFetchFailed;
+    switch (result.term) {
+        .Exited => |code| {
+            if (code != 0) {
+                return error.GitFetchFailed;
+            }
+        },
+        else => return error.GitFetchFailed,
     }
 }
 

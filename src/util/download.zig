@@ -69,9 +69,17 @@ pub fn extractTarXz(
     defer allocator.free(result.stdout);
     defer allocator.free(result.stderr);
 
-    if (result.term.Exited != 0) {
-        std.debug.print("tar failed: {s}\n", .{result.stderr});
-        return error.ExtractionFailed;
+    switch (result.term) {
+        .Exited => |code| {
+            if (code != 0) {
+                std.debug.print("tar failed (exit {d}): {s}\n", .{ code, result.stderr });
+                return error.ExtractionFailed;
+            }
+        },
+        else => {
+            std.debug.print("tar failed: {s}\n", .{result.stderr});
+            return error.ExtractionFailed;
+        },
     }
 
     std.debug.print("✓ Extracted successfully\n", .{});

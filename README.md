@@ -37,12 +37,15 @@ ZIM eliminates fragmented workflows by merging **toolchain and dependency manage
 - **ZLS management** — install, configure, and manage Zig Language Server
 
 ### 📦 Dependency Management (like `cargo`)
-- **Multiple dependency sources:** Git repositories, tarballs, local paths, and registries (future)
-- **Semantic versioning** with npm-style constraints (`^1.2.3`, `~1.0.0`, `>=2.0.0`)
+- **Multiple dependency sources:** Git repositories, tarballs, local paths, GitHub shorthand, and registries (future)
+- **GitHub shorthand syntax:** `gh/owner/repo[@ref]` for easy GitHub dependencies
+- **Semantic versioning** with npm-style constraints (`^1.2.3`, `~1.0.0`, `>=2.0.0`, `1.0.0...2.0.0`)
 - **Content-addressed caching** — Babylon-inspired deduplication and efficiency
-- **Dependency resolution** — automatic conflict detection and version compatibility
-- **Reproducible builds** — deterministic lockfiles (`zim.lock`) with full provenance
+- **Advanced dependency resolution** — automatic conflict detection, transitive dependencies, and circular dependency detection
+- **Dependency graph visualization** — Beautiful ASCII tree with cycle indicators
+- **Reproducible builds** — deterministic lockfiles (`zim.lock`) with full provenance tracking
 - **Native Zig format support** — read and write `build.zig.zon` dependencies
+- **Policy engine** — Allow/deny lists, hash requirements, and audit reports
 
 ### 🌐 Cross-Compilation Support
 - **Target management** — add and manage cross-compilation targets
@@ -58,9 +61,14 @@ ZIM eliminates fragmented workflows by merging **toolchain and dependency manage
 
 ### 🚀 Developer Experience
 - **Beautiful CLI** — clear, colorful output with progress indicators
-- **Dependency visualization** — ASCII tree graphs with cycle detection
+- **Dependency visualization** — ASCII tree graphs with cycle detection (↻ for cycles)
 - **Smart caching** — content-addressable storage prevents duplication
-- **Detailed diagnostics** — `zim doctor` checks system health
+- **Comprehensive diagnostics:**
+  - `zim doctor` — System health check (Zig, cache, config, network, disk)
+  - `zim doctor workspace` — Manifest/lockfile drift detection
+  - `zim cache integrity` — Cache corruption detection
+- **Self-update mechanism** — `zim update` keeps ZIM up-to-date
+- **Policy enforcement** — `zim policy audit` validates dependencies
 - **Comprehensive docs** — full CLI and API documentation
 
 ---
@@ -153,15 +161,27 @@ zim zls info                # Show ZLS version and info
 zim deps init my-awesome-project
 cd my-awesome-project
 
-# Add dependencies
+# Add dependencies (multiple formats)
 zim deps add zsync --git https://github.com/ghostkellz/zsync --ref main
-zim deps add zhttp --git https://github.com/ghostkellz/zhttp --ref main
+zim deps add zhttp gh/ghostkellz/zhttp@main          # GitHub shorthand
+zim deps add zpack gh/hendriknielaender/zpack@v0.3.3 # Specific version
 
 # Fetch all dependencies
 zim deps fetch
 
-# View dependency tree
+# View dependency tree with cycle detection
 zim deps graph
+
+# Run diagnostics
+zim doctor                # Full system check
+zim doctor workspace      # Check manifest/lockfile sync
+zim cache integrity       # Verify cache health
+
+# Policy enforcement
+zim policy audit          # Check dependencies against policy
+
+# Self-update ZIM
+zim update
 
 # Add cross-compilation target
 zim target add wasm32-wasi

@@ -158,6 +158,10 @@ default = ["native"]
 Add a dependency to the project.
 
 ```bash
+# GitHub shorthand (recommended)
+zim deps add zpack gh/hendriknielaender/zpack@v0.3.3
+zim deps add zsync gh/ghostkellz/zsync@main
+
 # Git dependency
 zim deps add zsync --git https://github.com/user/zsync --ref main
 
@@ -170,6 +174,20 @@ zim deps add mylib --local /path/to/mylib
 # Registry dependency (future)
 zim deps add zhttp@0.1.4
 ```
+
+**GitHub Shorthand Syntax:**
+```
+gh/owner/repo[@ref]
+```
+
+- `@ref` is optional and can be:
+  - Tag: `@v1.0.0`
+  - Branch: `@main`, `@develop`
+  - Commit: `@abc1234`
+
+If omitted, uses the repository's default branch.
+
+**See:** [GitHub Integration Guide](GITHUB_INTEGRATION.md)
 
 ### `zim deps fetch`
 
@@ -199,7 +217,7 @@ zim deps fetch
 
 ### `zim deps graph`
 
-Display dependency tree.
+Display dependency tree with cycle detection.
 
 ```bash
 zim deps graph
@@ -207,14 +225,33 @@ zim deps graph
 
 **Output:**
 ```
-Dependency graph:
+📦 Dependency Graph
+─────────────────────
 
-  zsync @ 0.7.1
-    └── zlog
-  zhttp @ 0.1.4
-    └── zsync
+my-project @ 1.0.0
+├─ zpack @ 0.3.3
+│  ├─ miniz @ 3.0.2
+│  └─ zlib @ 1.2.13
+├─ zsync @ 1.0.0
+│  ├─ zpack @ 0.3.3 ↻ (already shown)
+│  └─ flash @ 0.1.0
+└─ zhttp @ 0.2.0
+   └─ zsync @ 1.0.0 ↻ (already shown)
 
-Total: 2 direct dependencies
+Total: 3 direct, 6 total dependencies
+```
+
+**Features:**
+- ASCII tree visualization
+- Cycle detection with `↻` indicator
+- Transitive dependency tracking
+- Duplicate dependency highlighting
+
+**Export options:**
+```bash
+# Export to DOT format for Graphviz
+zim deps graph --format dot > deps.dot
+dot -Tpng deps.dot -o deps.png
 ```
 
 ### `zim deps update [package]`
@@ -316,13 +353,47 @@ zim cache prune            # Actually prune
 zim cache prune --dry-run  # Preview what would be deleted
 ```
 
-### `zim cache doctor`
+### `zim cache integrity`
 
 Verify cache integrity.
 
 ```bash
-zim cache doctor
+zim cache integrity
 ```
+
+**Output:**
+```
+🔍 Cache Integrity Check
+────────────────────────
+
+Scanning cache directory...
+
+────────────────────────
+  Total files: 42
+  Total size: 125847291 bytes
+
+✅ Cache integrity OK
+```
+
+**If corruption detected:**
+```
+🔍 Cache Integrity Check
+────────────────────────
+
+Scanning cache directory...
+
+  ✗ Corrupted: ab/cd/abcdef123456...
+  ✗ Corrupted: 12/34/123456789abc...
+
+────────────────────────
+  Total files: 42
+  Total size: 125847291 bytes
+  Corrupted files: 2
+
+⚠ Run 'zim cache clean' to remove corrupted files
+```
+
+**See:** [Diagnostics Guide](DIAGNOSTICS.md)
 
 ---
 
@@ -332,11 +403,63 @@ Security and policy enforcement.
 
 ### `zim policy audit`
 
-Audit dependencies against policy.
+Audit dependencies against security policy.
 
 ```bash
 zim policy audit
 ```
+
+**Requires:** `.zim/policy.json` configuration file:
+
+```json
+{
+  "allow": [
+    "github.com/*",
+    "ziglang.org/*"
+  ],
+  "deny": [
+    "malicious/*",
+    "untrusted/*"
+  ],
+  "require_hash": true
+}
+```
+
+**Output (all pass):**
+```
+📋 Policy Audit Report
+─────────────────────
+
+✓ All 8 dependencies passed policy checks
+```
+
+**Output (violations):**
+```
+📋 Policy Audit Report
+─────────────────────
+
+⚠ 2/8 dependencies failed policy checks
+
+Violations:
+  ✗ suspicious-package
+    Package 'suspicious-package' matches deny pattern: untrusted/*
+
+  ✗ no-hash-package
+    Package 'no-hash-package' requires hash verification but none provided
+```
+
+**Policy Enforcement Modes:**
+```toml
+# .zim/config.toml
+[policy]
+mode = "strict"  # "strict", "warn", or "off"
+```
+
+- **strict**: Fail builds on policy violations
+- **warn**: Show warnings but allow builds
+- **off**: Disable policy checks
+
+**See:** [Diagnostics Guide](DIAGNOSTICS.md#policy-audits)
 
 ### `zim verify`
 
@@ -365,17 +488,77 @@ Verifying dependencies...
 
 ### `zim doctor`
 
-Run system diagnostics.
+Run comprehensive system diagnostics.
 
 ```bash
 zim doctor
 ```
 
+**Output:**
+```
+🔍 ZIM System Diagnostics
+─────────────────────────
+
+  ✓ Zig Installation: Zig 0.16.0-dev.1225+bf9082518 installed
+  ✓ Cache Directory: Cache directory exists: /home/user/.cache/zim
+  ✓ Global Config: Global config loaded successfully
+  ✓ Network Connectivity: Network connectivity is working
+  ✓ Disk Space: Disk space available
+
+─────────────────────────
+✅ All checks passed (5 ok)
+```
+
+**Checks Performed:**
+- **Zig Installation**: Verifies `zig` is in PATH and reports version
+- **Cache Directory**: Validates cache exists and has write permissions
+- **Global Configuration**: Loads and validates `~/.config/zim/config.toml`
+- **Network Connectivity**: Tests connection to github.com
+- **Disk Space**: Checks available space and warns if low
+
+### `zim doctor workspace`
+
+Check workspace health and detect manifest/lockfile drift.
+
+```bash
+zim doctor workspace
+```
+
+**Output (when in sync):**
+```
+🔍 Workspace Diagnostics
+────────────────────────
+
+✓ Found zim.toml
+✓ Found zim.lock
+
+✅ Manifest and lockfile are in sync
+✓ build.zig.zon is up to date
+```
+
+**Output (drift detected):**
+```
+🔍 Workspace Diagnostics
+────────────────────────
+
+✓ Found zim.toml
+✓ Found zim.lock
+
+⚠ Manifest is newer than lockfile
+  zim.toml has been modified since last fetch
+  Run 'zim deps fetch' to update lockfile
+
+⚠ Lockfile is newer than build.zig.zon
+  Run 'zim deps export' to update build.zig.zon
+```
+
 **Checks:**
-- TLS/CA configuration
-- Network connectivity
-- Toolchain installations
-- Cache health
+- Manifest existence (`zim.toml`)
+- Lockfile existence (`zim.lock`)
+- Timestamp comparison
+- `build.zig.zon` synchronization
+
+**See:** [Diagnostics Guide](DIAGNOSTICS.md)
 
 ### `zim version`
 
@@ -390,6 +573,50 @@ zim version
 zim 0.1.0-dev
 Zig Infrastructure Manager
 Zig version: 0.16.0-dev.1225+bf9082518
+```
+
+### `zim update`
+
+Update ZIM to the latest version.
+
+```bash
+zim update
+```
+
+**What it does:**
+1. Checks GitHub for latest ZIM release
+2. Compares with current version
+3. Downloads platform-specific binary
+4. Creates backup of current installation
+5. Replaces binary with new version
+6. Verifies update succeeded
+
+**Output:**
+```
+🔍 Checking for updates...
+
+Current version: 0.3.3
+Latest version:  0.3.4
+
+Update available!
+
+Download latest version? [y/N]: y
+
+📥 Downloading update...
+  [=================] 100% (5.2 MB)
+
+✅ Update successful!
+  ZIM updated: 0.3.3 → 0.3.4
+
+Restart your shell to ensure the new version is active.
+```
+
+**Rollback on failure:**
+If the update fails, ZIM automatically restores the backup.
+
+**Skip prompt:**
+```bash
+zim update --yes  # Auto-accept update
 ```
 
 ### `zim help`
@@ -444,8 +671,13 @@ version = "1.0.0"
 zig = "0.16.0"
 
 [dependencies]
-zsync = { git = "https://github.com/user/zsync", ref = "main" }
-zhttp = { tarball = "https://example.com/zhttp.tar.gz", hash = "sha256:abc123..." }
+# GitHub shorthand (recommended)
+zpack = "gh/hendriknielaender/zpack@v0.3.3"
+zsync = "gh/ghostkellz/zsync@main"
+
+# Traditional formats
+zhttp = { git = "https://github.com/ghostkellz/zhttp", ref = "main" }
+legacy = { tarball = "https://example.com/legacy.tar.gz", hash = "sha256:abc123..." }
 mylib = { path = "/path/to/mylib" }
 
 [dev-dependencies]
@@ -513,9 +745,10 @@ zim use 0.16.0
 zim deps init my-awesome-project
 cd my-awesome-project
 
-# Add dependencies
-zim deps add zsync --git https://github.com/user/zsync
-zim deps add zhttp --git https://github.com/user/zhttp
+# Add dependencies (GitHub shorthand recommended)
+zim deps add zpack gh/hendriknielaender/zpack@v0.3.3
+zim deps add zsync gh/ghostkellz/zsync@main
+zim deps add zhttp gh/ghostkellz/zhttp@main
 
 # Fetch dependencies
 zim deps fetch

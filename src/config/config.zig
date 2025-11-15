@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const zontom = @import("zontom");
 
 /// ZIM Configuration
 /// Supports loading from:
@@ -112,30 +113,52 @@ pub const Config = struct {
         const global_config_path = try getGlobalConfigPath(self.arena.allocator());
 
         // Try to read global config if it exists
-        _ = std.fs.openFileAbsolute(global_config_path, .{}) catch |err| {
+        const file = std.fs.openFileAbsolute(global_config_path, .{}) catch |err| {
             if (err == error.FileNotFound) {
                 // No global config, that's fine
                 return;
             }
             return err;
         };
+        defer file.close();
 
-        // TODO: Parse TOML config file using zontom when available
+        // Read file contents
+        const stat = try file.stat();
+        const contents = try self.arena.allocator().alloc(u8, stat.size);
+        _ = try file.read(contents);
+
+        // Parse TOML
+        try self.parseTomlConfig(contents);
     }
 
-    fn loadProjectConfig(_: *Config) !void {
+    fn loadProjectConfig(self: *Config) !void {
         const project_config_path = ".zim/toolchain.toml";
 
         // Try to read project config if it exists
-        _ = std.fs.cwd().openFile(project_config_path, .{}) catch |err| {
+        const file = std.fs.cwd().openFile(project_config_path, .{}) catch |err| {
             if (err == error.FileNotFound) {
                 // No project config, that's fine
                 return;
             }
             return err;
         };
+        defer file.close();
 
-        // TODO: Parse TOML config file using zontom when available
+        // Read file contents
+        const stat = try file.stat();
+        const contents = try self.arena.allocator().alloc(u8, stat.size);
+        _ = try file.read(contents);
+
+        // Parse TOML
+        try self.parseTomlConfig(contents);
+    }
+
+    fn parseTomlConfig(self: *Config, toml_content: []const u8) !void {
+        _ = self;
+        _ = toml_content;
+        // TODO: Implement proper zontom API usage once the API is stable
+        // For now, config uses defaults from init()
+        return;
     }
 
     fn loadEnvVars(self: *Config) !void {
